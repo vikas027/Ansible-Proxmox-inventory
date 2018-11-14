@@ -255,11 +255,7 @@ def main_list(options, config_path):
             if 'groups' in metadata:
                 # print metadata
                 for group in metadata['groups']:
-                    if group not in results:
-                        results[group] = {
-                            'hosts': []
-                        }
-                    results[group]['hosts'] += [vm]
+                    add_to_group(group, vm, results)
 
             # Create group 'running'
             # so you can: --limit 'running'
@@ -281,6 +277,12 @@ def main_list(options, config_path):
 
     return results
 
+def add_to_group(groupname, vm, results):
+    if groupname not in results:
+        results[groupname] = {
+            'hosts': []
+        }
+    results[groupname]['hosts'] += [vm]
 
 def main_host(options, config_path):
     proxmox_api = ProxmoxAPI(options, config_path)
