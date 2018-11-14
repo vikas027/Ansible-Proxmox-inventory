@@ -32,6 +32,7 @@ try:
 except ImportError:
     import simplejson as json
 import os
+import re
 import sys
 from optparse import OptionParser
 
@@ -169,6 +170,12 @@ class ProxmoxAPI(object):
     def node_qemu_config(self, node, vm):
         return self.vm_config_by_type(node, vm, 'qemu')
 
+    def node_qemu_agent_netifaces(self, node, vm):
+        return self.get('api2/json/nodes/{0}/qemu/{1}/agent/network-get-interfaces'.format(node, vm))
+
+    def node_qemu_agent_osinfo(self, node, vm):
+        return self.get('api2/json/nodes/{0}/qemu/{1}/agent/get-osinfo'.format(node, vm))
+
     def node_lxc(self, node):
         return self.vms_by_type(node, 'lxc')
 
@@ -251,6 +258,86 @@ def main_list(options, config_path):
                 metadata = {
                     'notes': description
                 }
+                
+            if type == 'lxc':
+                try:
+                    net0 = proxmox_api.vm_config_by_type(node, vmid, type)['net0']
+                except KeyError:
+                    net0 = None
+
+                if net0:
+                    ipMatch = re.search("(?<=ip=)(([0-9]{1,3}\.){3}[0-9]{1,3})", net0)
+                    if ipMatch:
+                        ansible_host = {
+                            'ansible_host': ipMatch.group(1)
+                        }
+                        results['_meta']['hostvars'][vm].update(ansible_host)
+
+
+                try:
+                    osgroup = proxmox_api.vm_config_by_type(node, vmid, type)['ostype']
+                except KeyError:
+                    osgroup = None
+
+                if osgroup:
+                    add_to_group("os_" + osgroup, vm, results)
+
+            if type == 'qemu':
+                try:
+                    agent = proxmox_api.vm_config_by_type(node, vmid, type)['agent']
+                except KeyError:
+                    agent = None
+                try:
+                    ide2 = proxmox_api.vm_config_by_type(node, vmid, type)['ide2']
+                except KeyError:
+                    ide2 = None
+
+                if ide2 and "cloudinit" in ide2:
+                    try:
+                        ipconfig0 = proxmox_api.vm_config_by_type(node, vmid, type)['ipconfig0']
+                    except KeyError:
+                        ipconfig0 = None
+
+                    if ipconfig0:
+                        ipMatch = re.search("(?<=ip=)(([0-9]{1,3}\.){3}[0-9]{1,3})", ipconfig0)
+                        if ipMatch:
+                            ansible_host = {
+                                'ansible_host': ipMatch.group(1)
+                            }
+                            results['_meta']['hostvars'][vm].update(ansible_host)
+                else:
+                    if agent and agent == '1':
+                        try:
+                            ifaces = proxmox_api.node_qemu_agent_netifaces(node, vmid)
+                        except:
+                            ifaces = None
+
+                        if ifaces:
+                            for result in ifaces['result']:
+                                if result['name'] != 'lo':
+                                    for ipaddr in result['ip-addresses']:
+                                        if ipaddr['ip-address-type'] == 'ipv4':
+                                            ansible_host = {
+                                                'ansible_host': ipaddr['ip-address']
+                                            }
+                                            results['_meta']['hostvars'][vm].update(ansible_host)
+                    else:
+                        add_to_group("no_auto_ip", vm, results)
+
+                if agent and agent == '1':
+                    try:
+                        osinfo =proxmox_api.node_qemu_agent_osinfo(node, vmid)['result']
+                    except:
+                        osinfo = None
+
+                    if osinfo:
+                        try:
+                            osid = osinfo['id']
+                        except KeyError:
+                            osid = 'debian'
+
+                        if osid:
+                            add_to_group("os_" + osid, vm, results)
 
             if 'groups' in metadata:
                 # print metadata
