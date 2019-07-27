@@ -369,16 +369,21 @@ def main_list(options, config_path):
 
             # Create group 'running'
             # so you can: --limit 'running'
-            # I am only showing running VMs, not containers
+            # I am only showing running VMs not containers
             status = results['_meta']['hostvars'][vm]['proxmox_status']
             is_lxc = results.get('_meta').get(
                 'hostvars').get(vm).get('proxmox_type')
+            host_ip = results.get('_meta').get(
+                'hostvars').get(vm).get('ansible_host')
             if status == 'running' and is_lxc != 'lxc':
                 if 'running' not in results:
                     results['running'] = {
                         'hosts': []
                     }
-                results['running']['hosts'] += [vm]
+                # Use IP in the Ansible Inventory
+                # IP gets reported when qemu-guest-agent is active and running
+                if host_ip:
+                    results['running']['hosts'] += [str(host_ip)]
 
             results['_meta']['hostvars'][vm].update(metadata)
 
