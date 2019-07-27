@@ -321,7 +321,7 @@ def main_list(options, config_path):
 
                             if ifaces:
                                 for result in ifaces['result']:
-                                    if result['name'] != 'lo':
+                                    if result['name'] != 'lo' and result['name'] != 'docker0':
                                         for ipaddr in result['ip-addresses']:
                                             if ipaddr['ip-address-type'] == 'ipv4':
                                                 ansible_host = {
