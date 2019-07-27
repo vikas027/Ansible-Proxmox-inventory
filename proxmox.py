@@ -35,11 +35,8 @@ import os
 import re
 import sys
 from optparse import OptionParser
-
 from six import iteritems
-
 from six.moves.urllib.error import HTTPError
-
 from ansible.module_utils.urls import open_url
 
 
@@ -121,7 +118,8 @@ class ProxmoxAPI(object):
                             options.password = None
 
         if not options.url:
-            raise Exception('Missing mandatory parameter --url (or PROXMOX_URL or "url" key in config file).')
+            raise Exception(
+                'Missing mandatory parameter --url (or PROXMOX_URL or "url" key in config file).')
         elif not options.username:
             raise Exception(
                 'Missing mandatory parameter --username (or PROXMOX_USERNAME or "username" key in config file).')
@@ -148,7 +146,8 @@ class ProxmoxAPI(object):
     def get(self, url, data=None):
         request_path = '{0}{1}'.format(self.options.url, url)
 
-        headers = {'Cookie': 'PVEAuthCookie={0}'.format(self.credentials['ticket'])}
+        headers = {'Cookie': 'PVEAuthCookie={0}'.format(
+            self.credentials['ticket'])}
         request = open_url(request_path, data=data, headers=headers,
                            validate_certs=self.options.validate)
 
@@ -246,7 +245,8 @@ def main_list(options, config_path):
             except KeyError:
                 type = 'qemu'
             try:
-                description = proxmox_api.vm_config_by_type(node, vmid, type)['description']
+                description = proxmox_api.vm_config_by_type(node, vmid, type)[
+                    'description']
             except KeyError:
                 description = None
 
@@ -258,64 +258,74 @@ def main_list(options, config_path):
                 metadata = {
                     'notes': description
                 }
-            
+
             if proxmox_api.version().get_version() >= 4.0:
                 if type == 'lxc':
                     add_to_group("lxc", vm, results)
-                    
+
                     try:
-                        net0 = proxmox_api.vm_config_by_type(node, vmid, type)['net0']
+                        net0 = proxmox_api.vm_config_by_type(
+                            node, vmid, type)['net0']
                     except KeyError:
                         net0 = None
 
                     if net0:
-                        ipMatch = re.search("(?<=ip=)(([0-9]{1,3}\.){3}[0-9]{1,3})", net0)
+                        ipMatch = re.search(
+                            "(?<=ip=)(([0-9]{1,3}\.){3}[0-9]{1,3})", net0)
                         if ipMatch:
                             ansible_host = {
                                 'ansible_host': ipMatch.group(1)
                             }
-                            results['_meta']['hostvars'][vm].update(ansible_host)
-
+                            results['_meta']['hostvars'][vm].update(
+                                ansible_host)
 
                     try:
-                        osgroup = proxmox_api.vm_config_by_type(node, vmid, type)['ostype']
+                        osgroup = proxmox_api.vm_config_by_type(
+                            node, vmid, type)['ostype']
                     except KeyError:
                         osgroup = None
 
                     if osgroup:
                         add_to_group("os_" + osgroup, vm, results)
-                        add_to_subgroup("os_" + osgroup, "os_" + osgroup + "_lxc", vm, results)
+                        add_to_subgroup("os_" + osgroup, "os_" +
+                                        osgroup + "_lxc", vm, results)
                         add_to_subgroup("lxc", "lxc_" + osgroup, vm, results)
 
                 if type == 'qemu':
                     add_to_group("qemu", vm, results)
-                    
+
                     try:
-                        agent = proxmox_api.vm_config_by_type(node, vmid, type)['agent']
+                        agent = proxmox_api.vm_config_by_type(
+                            node, vmid, type)['agent']
                     except KeyError:
                         agent = None
                     try:
-                        ide2 = proxmox_api.vm_config_by_type(node, vmid, type)['ide2']
+                        ide2 = proxmox_api.vm_config_by_type(
+                            node, vmid, type)['ide2']
                     except KeyError:
                         ide2 = None
 
                     if ide2 and "cloudinit" in ide2:
                         try:
-                            ipconfig0 = proxmox_api.vm_config_by_type(node, vmid, type)['ipconfig0']
+                            ipconfig0 = proxmox_api.vm_config_by_type(node, vmid, type)[
+                                'ipconfig0']
                         except KeyError:
                             ipconfig0 = None
 
                         if ipconfig0:
-                            ipMatch = re.search("(?<=ip=)(([0-9]{1,3}\.){3}[0-9]{1,3})", ipconfig0)
+                            ipMatch = re.search(
+                                "(?<=ip=)(([0-9]{1,3}\.){3}[0-9]{1,3})", ipconfig0)
                             if ipMatch:
                                 ansible_host = {
                                     'ansible_host': ipMatch.group(1)
                                 }
-                                results['_meta']['hostvars'][vm].update(ansible_host)
+                                results['_meta']['hostvars'][vm].update(
+                                    ansible_host)
                     else:
                         if agent and agent == '1':
                             try:
-                                ifaces = proxmox_api.node_qemu_agent_netifaces(node, vmid)
+                                ifaces = proxmox_api.node_qemu_agent_netifaces(
+                                    node, vmid)
                             except:
                                 ifaces = None
 
@@ -327,13 +337,15 @@ def main_list(options, config_path):
                                                 ansible_host = {
                                                     'ansible_host': ipaddr['ip-address']
                                                 }
-                                                results['_meta']['hostvars'][vm].update(ansible_host)
+                                                results['_meta']['hostvars'][vm].update(
+                                                    ansible_host)
                         else:
                             add_to_group("no_auto_ip", vm, results)
 
                     if agent and agent == '1':
                         try:
-                            osinfo =proxmox_api.node_qemu_agent_osinfo(node, vmid)['result']
+                            osinfo = proxmox_api.node_qemu_agent_osinfo(node, vmid)[
+                                'result']
                         except:
                             osinfo = None
 
@@ -345,8 +357,10 @@ def main_list(options, config_path):
 
                             if osid:
                                 add_to_group("os_" + osid, vm, results)
-                                add_to_subgroup("os_" + osid, "os_" + osid + "_qemu", vm, results)
-                                add_to_subgroup("qemu", "qemu_" + osid, vm, results)
+                                add_to_subgroup(
+                                    "os_" + osid, "os_" + osid + "_qemu", vm, results)
+                                add_to_subgroup(
+                                    "qemu", "qemu_" + osid, vm, results)
 
             if 'groups' in metadata:
                 # print metadata
@@ -355,8 +369,11 @@ def main_list(options, config_path):
 
             # Create group 'running'
             # so you can: --limit 'running'
+            # I am only showing running VMs, not containers
             status = results['_meta']['hostvars'][vm]['proxmox_status']
-            if status == 'running':
+            is_lxc = results.get('_meta').get(
+                'hostvars').get(vm).get('proxmox_type')
+            if status == 'running' and is_lxc != 'lxc':
                 if 'running' not in results:
                     results['running'] = {
                         'hosts': []
@@ -373,6 +390,7 @@ def main_list(options, config_path):
 
     return results
 
+
 def add_to_group(groupname, vm, results):
     if groupname not in results:
         results[groupname] = {
@@ -380,7 +398,8 @@ def add_to_group(groupname, vm, results):
             'children': []
         }
     results[groupname]['hosts'] += [vm]
-    
+
+
 def add_to_subgroup(groupname, subgroupname, vm, results):
     if groupname not in results:
         results[groupname] = {
@@ -395,6 +414,7 @@ def add_to_subgroup(groupname, subgroupname, vm, results):
             'children': []
         }
     results[subgroupname]['hosts'] += [vm]
+
 
 def main_host(options, config_path):
     proxmox_api = ProxmoxAPI(options, config_path)
@@ -427,13 +447,21 @@ def main():
         bool_validate_cert = False
 
     parser = OptionParser(usage='%prog [options] --list | --host HOSTNAME')
-    parser.add_option('--list', action="store_true", default=False, dest="list")
+    parser.add_option('--list', action="store_true",
+                      default=False, dest="list")
     parser.add_option('--host', dest="host")
-    parser.add_option('--url', default=os.environ.get('PROXMOX_URL'), dest='url')
-    parser.add_option('--username', default=os.environ.get('PROXMOX_USERNAME'), dest='username')
-    parser.add_option('--password', default=os.environ.get('PROXMOX_PASSWORD'), dest='password')
-    parser.add_option('--pretty', action="store_true", default=False, dest='pretty')
-    parser.add_option('--trust-invalid-certs', action="store_false", default=bool_validate_cert, dest='validate')
+    parser.add_option(
+        '--url', default=os.environ.get('PROXMOX_URL'), dest='url')
+    parser.add_option(
+        '--username', default=os.environ.get('PROXMOX_USERNAME'), dest='username')
+    parser.add_option(
+        '--password', default=os.environ.get('PROXMOX_PASSWORD'), dest='password')
+    parser.add_option('--pretty', action="store_true",
+                      default=True, dest='pretty')
+    parser.add_option('--show-lxc', action="store_true",
+                      default=False, dest='showlxc')
+    parser.add_option('--trust-invalid-certs', action="store_false",
+                      default=bool_validate_cert, dest='validate')
     (options, args) = parser.parse_args()
 
     if options.list:
