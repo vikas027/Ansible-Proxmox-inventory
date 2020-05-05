@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 # Copyright (C) 2014  Mathieu GAUTHIER-LAFAYE <gauthierl@lapth.cnrs.fr>
 #
@@ -32,6 +32,7 @@ try:
 except ImportError:
     import simplejson as json
 import os
+from os import environ
 import re
 import sys
 from optparse import OptionParser
@@ -84,7 +85,8 @@ class ProxmoxPoolList(list):
 
 class ProxmoxVersion(dict):
     def get_version(self):
-        return float(self['version'])
+        return float(self['release'])
+        # return float(self['version'])
 
 
 class ProxmoxPool(dict):
@@ -130,7 +132,7 @@ class ProxmoxAPI(object):
     def auth(self):
         request_path = '{0}api2/json/access/ticket'.format(self.options.url)
 
-        request_params = urllib.urlencode({
+        request_params = urllib.parse.urlencode({
             'username': self.options.username,
             'password': self.options.password,
         })
@@ -209,7 +211,6 @@ def main_list(options, config_path):
 
     proxmox_api = ProxmoxAPI(options, config_path)
     proxmox_api.auth()
-
     for node in proxmox_api.nodes().get_names():
         try:
             qemu_list = proxmox_api.node_qemu(node)
@@ -237,155 +238,157 @@ def main_list(options, config_path):
         else:
             node_hostvars.update(openvz_list.get_variables())
 
+        # Create group 'running', so you can: --limit 'running'
+        results['running'] = {
+            'hosts': []
+        }
+
         # Check only VM/containers from the current node
         for vm in node_hostvars:
-            vmid = results['_meta']['hostvars'][vm]['proxmox_vmid']
-            try:
-                type = results['_meta']['hostvars'][vm]['proxmox_type']
-            except KeyError:
-                type = 'qemu'
-            try:
-                description = proxmox_api.vm_config_by_type(node, vmid, type)[
-                    'description']
-            except KeyError:
-                description = None
+            # Only choose Running VMs (not containers) of the current node
+            is_lxc = results.get('_meta').get(
+                'hostvars').get(vm).get('proxmox_type')
+            is_running = results.get('_meta').get(
+                'hostvars').get(vm).get('proxmox_status')
 
-            try:
-                metadata = json.loads(description)
-            except TypeError:
-                metadata = {}
-            except ValueError:
-                metadata = {
-                    'notes': description
-                }
+            if is_running == 'running' and is_lxc != 'lxc':
+                vmid = results['_meta']['hostvars'][vm]['proxmox_vmid']
+                try:
+                    type = results['_meta']['hostvars'][vm]['proxmox_type']
+                except KeyError:
+                    type = 'qemu'
+                try:
+                    description = proxmox_api.vm_config_by_type(node, vmid, type)[
+                        'description']
+                except KeyError:
+                    description = None
 
-            if proxmox_api.version().get_version() >= 4.0:
-                if type == 'lxc':
-                    add_to_group("lxc", vm, results)
+                try:
+                    metadata = json.loads(description)
+                except TypeError:
+                    metadata = {}
+                except ValueError:
+                    metadata = {
+                        'notes': description
+                    }
 
-                    try:
-                        net0 = proxmox_api.vm_config_by_type(
-                            node, vmid, type)['net0']
-                    except KeyError:
-                        net0 = None
+                if proxmox_api.version().get_version() >= 4.0:
+                    if type == 'lxc':
+                        add_to_group("lxc", vm, results)
 
-                    if net0:
-                        ipMatch = re.search(
-                            "(?<=ip=)(([0-9]{1,3}\.){3}[0-9]{1,3})", net0)
-                        if ipMatch:
-                            ansible_host = {
-                                'ansible_host': ipMatch.group(1)
-                            }
-                            results['_meta']['hostvars'][vm].update(
-                                ansible_host)
-
-                    try:
-                        osgroup = proxmox_api.vm_config_by_type(
-                            node, vmid, type)['ostype']
-                    except KeyError:
-                        osgroup = None
-
-                    if osgroup:
-                        add_to_group("os_" + osgroup, vm, results)
-                        add_to_subgroup("os_" + osgroup, "os_" +
-                                        osgroup + "_lxc", vm, results)
-                        add_to_subgroup("lxc", "lxc_" + osgroup, vm, results)
-
-                if type == 'qemu':
-                    add_to_group("qemu", vm, results)
-
-                    try:
-                        agent = proxmox_api.vm_config_by_type(
-                            node, vmid, type)['agent']
-                    except KeyError:
-                        agent = None
-                    try:
-                        ide2 = proxmox_api.vm_config_by_type(
-                            node, vmid, type)['ide2']
-                    except KeyError:
-                        ide2 = None
-
-                    if ide2 and "cloudinit" in ide2:
                         try:
-                            ipconfig0 = proxmox_api.vm_config_by_type(node, vmid, type)[
-                                'ipconfig0']
+                            net0 = proxmox_api.vm_config_by_type(
+                                node, vmid, type)['net0']
                         except KeyError:
-                            ipconfig0 = None
+                            net0 = None
 
-                        if ipconfig0:
+                        if net0:
                             ipMatch = re.search(
-                                "(?<=ip=)(([0-9]{1,3}\.){3}[0-9]{1,3})", ipconfig0)
+                                "(?<=ip=)(([0-9]{1,3}\.){3}[0-9]{1,3})", net0)
                             if ipMatch:
                                 ansible_host = {
                                     'ansible_host': ipMatch.group(1)
                                 }
                                 results['_meta']['hostvars'][vm].update(
                                     ansible_host)
-                    else:
+
+                        try:
+                            osgroup = proxmox_api.vm_config_by_type(
+                                node, vmid, type)['ostype']
+                        except KeyError:
+                            osgroup = None
+
+                        if osgroup:
+                            add_to_group("os_" + osgroup, vm, results)
+                            add_to_subgroup("os_" + osgroup, "os_" +
+                                            osgroup + "_lxc", vm, results)
+                            add_to_subgroup(
+                                "lxc", "lxc_" + osgroup, vm, results)
+
+                    if type == 'qemu':
+                        add_to_group("qemu", vm, results)
+
+                        try:
+                            agent = proxmox_api.vm_config_by_type(
+                                node, vmid, type)['agent']
+                        except KeyError:
+                            agent = None
+                        try:
+                            ide2 = proxmox_api.vm_config_by_type(
+                                node, vmid, type)['ide2']
+                        except KeyError:
+                            ide2 = None
+
+                        if ide2 and "cloudinit" in ide2:
+                            try:
+                                ipconfig0 = proxmox_api.vm_config_by_type(node, vmid, type)[
+                                    'ipconfig0']
+                            except KeyError:
+                                ipconfig0 = None
+
+                            if ipconfig0:
+                                ipMatch = re.search(
+                                    "(?<=ip=)(([0-9]{1,3}\.){3}[0-9]{1,3})", ipconfig0)
+                                if ipMatch:
+                                    ansible_host = {
+                                        'ansible_host': ipMatch.group(1)
+                                    }
+                                    results['_meta']['hostvars'][vm].update(
+                                        ansible_host)
+                        else:
+                            if agent and agent == '1':
+                                try:
+                                    ifaces = proxmox_api.node_qemu_agent_netifaces(
+                                        node, vmid)
+                                except:
+                                    ifaces = None
+
+                                if ifaces:
+                                    for result in ifaces['result']:
+                                        if result['name'] == 'ens19':
+                                            for ipaddr in result['ip-addresses']:
+                                                if ipaddr['ip-address-type'] == 'ipv4':
+                                                    ansible_host = {
+                                                        'ansible_host': ipaddr['ip-address']
+                                                    }
+                                                    results['_meta']['hostvars'][vm].update(
+                                                        ansible_host)
+                            else:
+                                add_to_group("no_auto_ip", vm, results)
+
                         if agent and agent == '1':
                             try:
-                                ifaces = proxmox_api.node_qemu_agent_netifaces(
-                                    node, vmid)
+                                osinfo = proxmox_api.node_qemu_agent_osinfo(node, vmid)[
+                                    'result']
                             except:
-                                ifaces = None
+                                osinfo = None
 
-                            if ifaces:
-                                for result in ifaces['result']:
-                                    if result['name'] != 'lo' and result['name'] != 'docker0':
-                                        for ipaddr in result['ip-addresses']:
-                                            if ipaddr['ip-address-type'] == 'ipv4':
-                                                ansible_host = {
-                                                    'ansible_host': ipaddr['ip-address']
-                                                }
-                                                results['_meta']['hostvars'][vm].update(
-                                                    ansible_host)
-                        else:
-                            add_to_group("no_auto_ip", vm, results)
+                            if osinfo:
+                                try:
+                                    osid = osinfo['id']
+                                except KeyError:
+                                    osid = 'debian'
 
-                    if agent and agent == '1':
-                        try:
-                            osinfo = proxmox_api.node_qemu_agent_osinfo(node, vmid)[
-                                'result']
-                        except:
-                            osinfo = None
+                                if osid:
+                                    add_to_group("os_" + osid, vm, results)
+                                    add_to_subgroup(
+                                        "os_" + osid, "os_" + osid + "_qemu", vm, results)
+                                    add_to_subgroup(
+                                        "qemu", "qemu_" + osid, vm, results)
 
-                        if osinfo:
-                            try:
-                                osid = osinfo['id']
-                            except KeyError:
-                                osid = 'debian'
-
-                            if osid:
-                                add_to_group("os_" + osid, vm, results)
-                                add_to_subgroup(
-                                    "os_" + osid, "os_" + osid + "_qemu", vm, results)
-                                add_to_subgroup(
-                                    "qemu", "qemu_" + osid, vm, results)
-
-            if 'groups' in metadata:
-                # print metadata
-                for group in metadata['groups']:
-                    add_to_group(group, vm, results)
-
-            # Create group 'running'
-            # so you can: --limit 'running'
-            # I am only showing running VMs not containers
-            status = results['_meta']['hostvars'][vm]['proxmox_status']
-            is_lxc = results.get('_meta').get(
-                'hostvars').get(vm).get('proxmox_type')
-            host_ip = results.get('_meta').get(
-                'hostvars').get(vm).get('ansible_host')
-            if status == 'running' and is_lxc != 'lxc':
-                if 'running' not in results:
-                    results['running'] = {
-                        'hosts': []
-                    }
                 # Use IP in the Ansible Inventory
                 # IP gets reported when qemu-guest-agent is active and running
+                host_ip = results.get('_meta').get(
+                    'hostvars').get(vm).get('ansible_host')
+
+                # This is in 'Notes' in Proxmox Inventory { "groups": ["rke"] }
+                if 'groups' in metadata and host_ip:
+                    for group in metadata['groups']:
+                        add_to_group(group, str(host_ip), results)
+
                 if host_ip:
                     results['running']['hosts'] += [str(host_ip)]
-
-            results['_meta']['hostvars'][vm].update(metadata)
+                results['_meta']['hostvars'][vm].update(metadata)
 
     # pools
     for pool in proxmox_api.pools().get_names():
@@ -448,7 +451,7 @@ def main():
                 bool_validate_cert = config_data["validateCert"]
             except KeyError:
                 pass
-    if os.environ.has_key('PROXMOX_INVALID_CERT'):
+    if environ.get('PROXMOX_INVALID_CERT'):
         bool_validate_cert = False
 
     parser = OptionParser(usage='%prog [options] --list | --host HOSTNAME')
@@ -462,12 +465,10 @@ def main():
     parser.add_option(
         '--password', default=os.environ.get('PROXMOX_PASSWORD'), dest='password')
     parser.add_option('--pretty', action="store_true",
-                      default=True, dest='pretty')
-    parser.add_option('--show-lxc', action="store_true",
-                      default=False, dest='showlxc')
+                      default=False, dest='pretty')
     parser.add_option('--trust-invalid-certs', action="store_false",
                       default=bool_validate_cert, dest='validate')
-    (options, args) = parser.parse_args()
+    (options, _) = parser.parse_args()
 
     if options.list:
         data = main_list(options, config_path)
